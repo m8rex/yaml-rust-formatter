@@ -84,7 +84,7 @@ pub enum YamlOutput {
     /// Insertion order will match the order of insertion into the map.
     Hash(self::HashOutput),
     /// Anchored data: The name and the value
-    Anchored(string::String, Box<YamlInput>),
+    Anchored(string::String, Box<YamlOutput>),
     /// Alias
     Alias(string::String),
     /// YAML null, e.g. `null` or `~`.
@@ -109,7 +109,7 @@ impl std::convert::Into<YamlOutput> for YamlInput {
             Self::Hash(h) => {
                 YamlOutput::Hash(h.into_iter().map(|(k, v)| (k.into(), v.into())).collect())
             }
-            Self::Anchored(s, i) => YamlOutput::Anchored(s, i),
+            Self::Anchored(s, i) => YamlOutput::Anchored(s, Box::new((*i).into())),
             Self::Aliased(s, _) => YamlOutput::Alias(s),
             Self::Null => YamlOutput::Null,
             Self::BadValue => YamlOutput::BadValue,
@@ -131,10 +131,10 @@ fn parse_f64(v: &str) -> Option<f64> {
 pub struct YamlLoader {
     docs: Vec<YamlInput>,
     // states
-    // (current node, anchor_id) tuple
-    doc_stack: Vec<(YamlInput, usize)>,
+    // (current node, anchor) tuple
+    doc_stack: Vec<(YamlInput, Option<String>)>,
     key_stack: Vec<YamlInput>,
-    anchor_map: BTreeMap<usize, YamlInput>,
+    anchor_map: BTreeMap<String, YamlInput>,
 }
 
 impl MarkedEventReceiver for YamlLoader {
@@ -157,7 +157,14 @@ impl MarkedEventReceiver for YamlLoader {
             }
             Event::SequenceEnd => {
                 let node = self.doc_stack.pop().unwrap();
-                self.insert_new_node(node);
+                if let Some(anchor) = node.1 {
+                    self.insert_new_node((
+                        YamlInput::Anchored(anchor.clone(), Box::new(node.0)),
+                        Some(anchor.clone()),
+                    ));
+                } else {
+                    self.insert_new_node(node);
+                }
             }
             Event::MappingStart(aid) => {
                 self.doc_stack
@@ -167,7 +174,14 @@ impl MarkedEventReceiver for YamlLoader {
             Event::MappingEnd => {
                 self.key_stack.pop().unwrap();
                 let node = self.doc_stack.pop().unwrap();
-                self.insert_new_node(node);
+                if let Some(anchor) = node.1 {
+                    self.insert_new_node((
+                        YamlInput::Anchored(anchor.clone(), Box::new(node.0)),
+                        Some(anchor.clone()),
+                    ));
+                } else {
+                    self.insert_new_node(node);
+                }
             }
             Event::Scalar(v, style, aid, tag) => {
                 let node = if style != TScalarStyle::Plain {
@@ -205,14 +219,24 @@ impl MarkedEventReceiver for YamlLoader {
                     YamlInput::from_str(&v)
                 };
 
-                self.insert_new_node((node, aid));
+                if let Some(anchor) = aid {
+                    self.insert_new_node((
+                        YamlInput::Anchored(anchor.clone(), Box::new(node)),
+                        Some(anchor.clone()),
+                    ));
+                } else {
+                    self.insert_new_node((node, None));
+                }
             }
             Event::Alias(id) => {
-                let n = match self.anchor_map.get(&id) {
-                    Some(v) => v.clone(),
-                    None => YamlInput::BadValue,
-                };
-                self.insert_new_node((n, 0));
+                let node = YamlInput::Aliased(
+                    id.clone(),
+                    self.anchor_map
+                        .get(&id)
+                        .clone()
+                        .map(|a| Box::new(a.clone())),
+                );
+                self.insert_new_node((node, None));
             }
             _ => { /* ignore */ }
         }
@@ -221,10 +245,10 @@ impl MarkedEventReceiver for YamlLoader {
 }
 
 impl YamlLoader {
-    fn insert_new_node(&mut self, node: (YamlInput, usize)) {
+    fn insert_new_node(&mut self, node: (YamlInput, Option<String>)) {
         // valid anchor id starts from 1
-        if node.1 > 0 {
-            self.anchor_map.insert(node.1, node.0.clone());
+        if let Some(anchor) = node.1.as_ref() {
+            self.anchor_map.insert(anchor.clone(), node.0.clone());
         }
         if self.doc_stack.is_empty() {
             self.doc_stack.push(node);
@@ -267,6 +291,8 @@ macro_rules! define_as (
 pub fn $name(&self) -> Option<$t> {
     match *self {
         Self::$yt(v) => Some(v),
+        Self::Aliased(ref _s, ref v_opt) => v_opt.as_ref().map(|v| v.$name()).flatten(),
+        Self::Anchored(ref _s, ref v) => v.$name(),
         _ => None
     }
 }
@@ -278,6 +304,8 @@ macro_rules! define_as_ref (
 pub fn $name(&self) -> Option<$t> {
     match *self {
         Self::$yt(ref v) => Some(v),
+        Self::Aliased(ref _s, ref v_opt) => v_opt.as_ref().map(|v| v.$name()).flatten(),
+        Self::Anchored(ref _s, ref v) => v.$name(),
         _ => None
     }
 }
@@ -289,6 +317,8 @@ macro_rules! define_into (
 pub fn $name(self) -> Option<$t> {
     match self {
         Self::$yt(v) => Some(v),
+        Self::Aliased(_s, v_opt) => v_opt.map(|v| v.$name()).flatten(),
+        Self::Anchored(_s, v) => v.$name(),
         _ => None
     }
 }
@@ -498,6 +528,7 @@ a2: *DEFAULT
 
     #[test]
     fn test_bad_anchor() {
+        // allow invalid tags
         let s = "
 a1: &DEFAULT
     b1: 4
@@ -505,7 +536,10 @@ a1: &DEFAULT
 ";
         let out = YamlLoader::load_from_str(&s).unwrap();
         let doc = &out[0];
-        assert_eq!(doc["a1"]["b2"], YamlInput::BadValue);
+        assert_eq!(
+            doc["a1"]["b2"],
+            YamlInput::Aliased("DEFAULT".to_string(), None)
+        );
     }
 
     #[test]

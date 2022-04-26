@@ -230,8 +230,15 @@ impl<'a> YamlEmitter<'a> {
                 write!(self.writer, "~")?;
                 Ok(())
             }
-            // XXX(chenyh) Alias
-            _ => Ok(()),
+            YamlOutput::Alias(ref s) => {
+                write!(self.writer, "*{}", s)?;
+                Ok(())
+            }
+            YamlOutput::Anchored(ref s, ref data) => {
+                write!(self.writer, "&{}", s)?;
+                self.emit_val(false, &*data)?;
+                Ok(())
+            }
         }
     }
 
@@ -424,8 +431,8 @@ a4:
     fn test_emit_complex() {
         let s = r#"
 cataloge:
-  product: &coffee   { name: Coffee,    price: 2.5  ,  unit: 1l  }
-  product: &cookies  { name: Cookies!,  price: 3.40 ,  unit: 400g}
+  product1: &coffee   { name: Coffee,    price: 2.5  ,  unit: 1l  }
+  product2: &cookies  { name: Cookies!,  price: 3.40 ,  unit: 400g}
 
 products:
   *coffee:
