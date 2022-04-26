@@ -112,6 +112,7 @@ pub enum TokenType {
     /// handle, suffix
     Tag(String, String),
     Scalar(TScalarStyle, String),
+    Comment(String),
 }
 
 #[derive(Clone, PartialEq, Debug, Eq)]
@@ -393,6 +394,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             {
                 self.fetch_value()
             }
+            '#' => self.fetch_comment(),
             // Is it an alias?
             '*' => self.fetch_anchor(true),
             // Is it an anchor?
@@ -485,12 +487,6 @@ impl<T: Iterator<Item = char>> Scanner<T> {
                     self.skip_line();
                     if self.flow_level == 0 {
                         self.allow_simple_key();
-                    }
-                }
-                '#' => {
-                    while !is_breakz(self.ch()) {
-                        self.skip();
-                        self.lookahead(1);
                     }
                 }
                 _ => break,
@@ -950,6 +946,32 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         } else {
             Ok(Token(start_mark, TokenType::Anchor(string)))
         }
+    }
+
+    fn fetch_comment(&mut self) -> ScanResult {
+        self.save_simple_key()?;
+        self.disallow_simple_key();
+
+        let tok = self.scan_comment()?;
+
+        self.tokens.push_back(tok);
+
+        Ok(())
+    }
+
+    fn scan_comment(&mut self) -> Result<Token, ScanError> {
+        let mut string = String::new();
+        let start_mark = self.mark;
+
+        self.skip();
+        self.lookahead(1);
+        while !is_breakz(self.ch()) {
+            string.push(self.ch());
+            self.skip();
+            self.lookahead(1);
+        }
+
+        Ok(Token(start_mark, TokenType::Comment(string)))
     }
 
     fn fetch_flow_collection_start(&mut self, tok: TokenType) -> ScanResult {
@@ -1839,6 +1861,7 @@ mod test {
         next!(p, Value);
         next!(p, Scalar(TScalarStyle::Plain, _));
         next!(p, FlowEntry);
+        next!(p, Comment(_));
         next!(p, Key);
         next_scalar!(p, TScalarStyle::Plain, "a complex key");
         next!(p, Value);
@@ -1911,6 +1934,7 @@ a sequence:
         next!(p, Scalar(_, _));
         next!(p, Value);
         next!(p, Scalar(_, _));
+        next!(p, Comment(_));
         next!(p, Key);
         next!(p, Scalar(_, _));
         next!(p, Value);

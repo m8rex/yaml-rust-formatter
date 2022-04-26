@@ -134,6 +134,7 @@ pub struct YamlLoader {
     // (current node, anchor) tuple
     doc_stack: Vec<(YamlInput, Option<String>)>,
     key_stack: Vec<YamlInput>,
+    comments: Vec<String>,
     anchor_map: BTreeMap<String, YamlInput>,
 }
 
@@ -238,6 +239,7 @@ impl MarkedEventReceiver for YamlLoader {
                 );
                 self.insert_new_node((node, None));
             }
+            Event::Comment(c) => self.comments.push(c.clone()),
             _ => { /* ignore */ }
         }
         // println!("DOC {:?}", self.doc_stack);
@@ -278,6 +280,7 @@ impl YamlLoader {
             docs: Vec::new(),
             doc_stack: Vec::new(),
             key_stack: Vec::new(),
+            comments: Vec::new(),
             anchor_map: BTreeMap::new(),
         };
         let mut parser = Parser::new(source.chars());

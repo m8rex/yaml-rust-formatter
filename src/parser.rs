@@ -49,6 +49,7 @@ pub enum Event {
     /// Anchor
     MappingStart(Option<String>),
     MappingEnd,
+    Comment(String),
 }
 
 impl Event {
@@ -229,7 +230,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
         recv: &mut R,
     ) -> Result<(), ScanError> {
         match first_ev {
-            Event::Alias(..) | Event::Scalar(..) => {
+            Event::Alias(..) | Event::Scalar(..) | Event::Comment(..) => {
                 recv.on_event(first_ev, mark);
                 Ok(())
             }
@@ -347,7 +348,8 @@ impl<T: Iterator<Item = char>> Parser<T> {
             }
             Token(_, TokenType::VersionDirective(..))
             | Token(_, TokenType::TagDirective(..))
-            | Token(_, TokenType::DocumentStart) => {
+            | Token(_, TokenType::DocumentStart)
+            | Token(_, TokenType::Comment(_)) => {
                 // explicit document
                 self._explicit_document_start()
             }
@@ -517,6 +519,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 self.state = State::BlockMappingFirstKey;
                 Ok((Event::MappingStart(anchor), mark))
             }
+            Token(mark, TokenType::Comment(ref c)) => Ok((Event::Comment(c.clone()), mark)),
             // ex 7.2, an empty scalar can follow a secondary tag
             Token(mark, _) if tag.is_some() || anchor.is_some() => {
                 self.pop_state();
