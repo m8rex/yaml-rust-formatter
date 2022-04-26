@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 #![allow(non_upper_case_globals)]
-extern crate yaml_rust_davvid;
+extern crate yaml_rust_formatter;
 
-use yaml_rust_davvid::parser::{Event, EventReceiver, Parser};
-use yaml_rust_davvid::scanner::TScalarStyle;
+use yaml_rust_formatter::parser::{Event, EventReceiver, Parser};
+use yaml_rust_formatter::scanner::TScalarStyle;
 
 // These names match the names used in the C++ test suite.
 #[cfg_attr(feature = "cargo-clippy", allow(enum_variant_names))]
@@ -76,32 +76,32 @@ include!("spec_test.rs.inc");
 
 #[test]
 fn test_mapvec_legal() {
-    use yaml_rust_davvid::yaml::{Array, Hash, Yaml};
-    use yaml_rust_davvid::{YamlEmitter, YamlLoader};
+    use yaml_rust_formatter::yaml::{ArrayInput, HashInput, YamlInput, YamlOutput};
+    use yaml_rust_formatter::{YamlEmitter, YamlLoader};
 
     // Emitting a `map<map<seq<_>>, _>` should result in legal yaml that
     // we can parse.
 
-    let mut key = Array::new();
-    key.push(Yaml::Integer(1));
-    key.push(Yaml::Integer(2));
-    key.push(Yaml::Integer(3));
+    let mut key = ArrayInput::new();
+    key.push(YamlInput::Integer(1));
+    key.push(YamlInput::Integer(2));
+    key.push(YamlInput::Integer(3));
 
-    let mut keyhash = Hash::new();
-    keyhash.insert(Yaml::String("key".into()), Yaml::Array(key));
+    let mut keyhash = HashInput::new();
+    keyhash.insert(YamlInput::String("key".into()), YamlInput::Array(key));
 
-    let mut val = Array::new();
-    val.push(Yaml::Integer(4));
-    val.push(Yaml::Integer(5));
-    val.push(Yaml::Integer(6));
+    let mut val = ArrayInput::new();
+    val.push(YamlInput::Integer(4));
+    val.push(YamlInput::Integer(5));
+    val.push(YamlInput::Integer(6));
 
-    let mut hash = Hash::new();
-    hash.insert(Yaml::Hash(keyhash), Yaml::Array(val));
+    let mut hash = HashInput::new();
+    hash.insert(YamlInput::Hash(keyhash), YamlInput::Array(val));
 
     let mut out_str = String::new();
     {
         let mut emitter = YamlEmitter::new(&mut out_str);
-        emitter.dump(&Yaml::Hash(hash)).unwrap();
+        emitter.dump(&YamlInput::Hash(hash).into()).unwrap();
     }
 
     // At this point, we are tempted to naively render like this:

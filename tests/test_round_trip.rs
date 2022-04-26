@@ -1,10 +1,11 @@
-extern crate yaml_rust_davvid;
+extern crate yaml_rust_formatter;
 
-use yaml_rust_davvid::{Yaml, YamlEmitter, YamlLoader};
+use yaml_rust_formatter::{YamlEmitter, YamlInput, YamlLoader, YamlOutput};
 
-fn roundtrip(original: &Yaml) {
+fn roundtrip(original: &YamlInput) {
+    let output: YamlOutput = original.clone().into();
     let mut emitted = String::new();
-    YamlEmitter::new(&mut emitted).dump(original).unwrap();
+    YamlEmitter::new(&mut emitted).dump(&output).unwrap();
 
     let documents = YamlLoader::load_from_str(&emitted).unwrap();
     println!("emitted {}", emitted);
@@ -16,8 +17,9 @@ fn roundtrip(original: &Yaml) {
 fn double_roundtrip(original: &str) {
     let parsed = YamlLoader::load_from_str(&original).unwrap();
 
+    let output: YamlOutput = parsed[0].clone().into();
     let mut serialized = String::new();
-    YamlEmitter::new(&mut serialized).dump(&parsed[0]).unwrap();
+    YamlEmitter::new(&mut serialized).dump(&output).unwrap();
 
     let reparsed = YamlLoader::load_from_str(&serialized).unwrap();
 
@@ -26,26 +28,30 @@ fn double_roundtrip(original: &str) {
 
 #[test]
 fn test_escape_character() {
-    let y = Yaml::String("\x1b".to_owned());
+    let y = YamlInput::String("\x1b".to_owned());
     roundtrip(&y);
 }
 
 #[test]
 fn test_colon_in_string() {
-    let y = Yaml::String("x: %".to_owned());
+    let y = YamlInput::String("x: %".to_owned());
     roundtrip(&y);
 }
 
 #[test]
 fn test_numberlike_strings() {
     let docs = [
-        r#"x: "1234""#, r#"x: "01234""#, r#""1234""#,
-        r#""01234""#, r#"" 01234""#, r#""0x1234""#,
+        r#"x: "1234""#,
+        r#"x: "01234""#,
+        r#""1234""#,
+        r#""01234""#,
+        r#"" 01234""#,
+        r#""0x1234""#,
         r#"" 0x1234""#,
     ];
 
     for doc in &docs {
-        roundtrip(&Yaml::String(doc.to_string()));
+        roundtrip(&YamlInput::String(doc.to_string()));
         double_roundtrip(&doc);
     }
 }
@@ -53,13 +59,15 @@ fn test_numberlike_strings() {
 /// Example from https://github.com/chyh1990/yaml-rust/issues/133
 #[test]
 fn test_issue133() {
+    let doc = YamlLoader::load_from_str("\"0x123\"")
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(doc, YamlInput::String("0x123".to_string()));
 
-    let doc = YamlLoader::load_from_str("\"0x123\"").unwrap().pop().unwrap();
-    assert_eq!(doc, Yaml::String("0x123".to_string()));
-
+    let output: YamlOutput = doc.clone().into();
     let mut out_str = String::new();
-    YamlEmitter::new(&mut out_str).dump(&doc).unwrap();
+    YamlEmitter::new(&mut out_str).dump(&output).unwrap();
     let doc2 = YamlLoader::load_from_str(&out_str).unwrap().pop().unwrap();
     assert_eq!(doc, doc2); // This failed because the type has changed to a number now
-
 }

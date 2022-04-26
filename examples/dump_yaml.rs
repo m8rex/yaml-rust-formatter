@@ -1,9 +1,9 @@
-extern crate yaml_rust_davvid;
+extern crate yaml_rust_formatter;
 
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
-use yaml_rust_davvid::yaml;
+use yaml_rust_formatter::yaml;
 
 fn print_indent(indent: usize) {
     for _ in 0..indent {
@@ -11,14 +11,14 @@ fn print_indent(indent: usize) {
     }
 }
 
-fn dump_node(doc: &yaml::Yaml, indent: usize) {
+fn dump_node(doc: &yaml::YamlOutput, indent: usize) {
     match *doc {
-        yaml::Yaml::Array(ref v) => {
+        yaml::YamlOutput::Array(ref v) => {
             for x in v {
                 dump_node(x, indent + 1);
             }
         }
-        yaml::Yaml::Hash(ref h) => {
+        yaml::YamlOutput::Hash(ref h) => {
             for (k, v) in h {
                 print_indent(indent);
                 println!("{:?}:", k);
@@ -39,8 +39,9 @@ fn main() {
     f.read_to_string(&mut s).unwrap();
 
     let docs = yaml::YamlLoader::load_from_str(&s).unwrap();
-    for doc in &docs {
+    for doc in docs.into_iter() {
+        let output_doc = doc.into();
         println!("---");
-        dump_node(doc, 0);
+        dump_node(&output_doc, 0);
     }
 }

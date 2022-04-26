@@ -11,27 +11,14 @@
 //!
 //! ```toml
 //! [dependencies]
-//! yaml-rust = { version = "0.5", package = "yaml-rust-davvid" }
-//! ```
-//!
-//! And this in your crate root:
-//!
-//! ```rust
-//! // If you use the toml snippet above you can use the alias:
-//! //
-//! //      extern crate yaml_rust;
-//! //
-//! // Alternatively, import the crate using an alias.
-//! extern crate yaml_rust_davvid as yaml_rust;
-//! ```
+//! yaml_rust_formatter = { version = "0.5" }
 //!
 //! Parse a string into `Vec<Yaml>` and then serialize it as a YAML string.
 //!
 //! # Examples
 //!
 //! ```
-//! extern crate yaml_rust_davvid as yaml_rust;
-//! use yaml_rust::{YamlLoader, YamlEmitter};
+//! use yaml_rust_formatter::{YamlLoader, YamlEmitter};
 //!
 //! let docs = YamlLoader::load_from_str("[1, 2, 3]").unwrap();
 //! let doc = &docs[0]; // select the first document
@@ -62,7 +49,7 @@ pub mod yaml;
 pub use crate::emitter::{EmitError, YamlEmitter};
 pub use crate::parser::Event;
 pub use crate::scanner::ScanError;
-pub use crate::yaml::{Yaml, YamlLoader};
+pub use crate::yaml::{YamlInput, YamlLoader, YamlOutput};
 
 #[cfg(test)]
 mod tests {
@@ -99,16 +86,17 @@ mod tests {
 
         assert_eq!(doc[0]["name"].as_str().unwrap(), "Ogre");
 
+        let output_doc: YamlOutput = doc.clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&output_doc).unwrap();
         }
 
         assert!(!writer.is_empty());
     }
 
-    fn try_fail(s: &str) -> Result<Vec<Yaml>, ScanError> {
+    fn try_fail(s: &str) -> Result<Vec<YamlInput>, ScanError> {
         let t = YamlLoader::load_from_str(s)?;
         Ok(t)
     }
@@ -124,5 +112,4 @@ key1:a2
         assert!(YamlLoader::load_from_str(s).is_err());
         assert!(try_fail(s).is_err());
     }
-
 }

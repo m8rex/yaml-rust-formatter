@@ -1,7 +1,7 @@
+use crate::yaml::{HashOutput, YamlOutput};
 use std::convert::From;
 use std::error::Error;
 use std::fmt::{self, Display};
-use crate::yaml::{Hash, Yaml};
 
 #[derive(Copy, Clone, Debug)]
 pub enum EmitError {
@@ -137,17 +137,17 @@ impl<'a> YamlEmitter<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use yaml_rust_davvid::{Yaml, YamlEmitter, YamlLoader};
+    /// use yaml_rust_formatter::{YamlOutput, YamlEmitter, YamlLoader};
     ///
     /// let input = r#"{foo: "bar!\nbar!", baz: 42}"#;
     /// let parsed = YamlLoader::load_from_str(input).unwrap();
     /// eprintln!("{:?}", parsed);
-    ///
+    /// let yaml = parsed[0].clone().into();
     /// let mut output = String::new();
     /// # {
     /// let mut emitter = YamlEmitter::new(&mut output);
     /// emitter.multiline_strings(true);
-    /// emitter.dump(&parsed[0]).unwrap();
+    /// emitter.dump(&yaml).unwrap();
     /// # }
     ///
     /// assert_eq!(output.as_str(), "\
@@ -168,7 +168,7 @@ impl<'a> YamlEmitter<'a> {
         self.multiline_strings
     }
 
-    pub fn dump(&mut self, doc: &Yaml) -> EmitResult {
+    pub fn dump(&mut self, doc: &YamlOutput) -> EmitResult {
         // write DocumentStart
         writeln!(self.writer, "---")?;
         self.level = -1;
@@ -187,11 +187,11 @@ impl<'a> YamlEmitter<'a> {
         Ok(())
     }
 
-    fn emit_node(&mut self, node: &Yaml) -> EmitResult {
+    fn emit_node(&mut self, node: &YamlOutput) -> EmitResult {
         match *node {
-            Yaml::Array(ref v) => self.emit_array(v),
-            Yaml::Hash(ref h) => self.emit_hash(h),
-            Yaml::String(ref v) => {
+            YamlOutput::Array(ref v) => self.emit_array(v),
+            YamlOutput::Hash(ref h) => self.emit_hash(h),
+            YamlOutput::String(ref v) => {
                 if self.multiline_strings && v.contains('\n') {
                     write!(self.writer, "|")?;
                     self.level += 1;
@@ -210,7 +210,7 @@ impl<'a> YamlEmitter<'a> {
 
                 Ok(())
             }
-            Yaml::Boolean(v) => {
+            YamlOutput::Boolean(v) => {
                 if v {
                     self.writer.write_str("true")?;
                 } else {
@@ -218,15 +218,15 @@ impl<'a> YamlEmitter<'a> {
                 }
                 Ok(())
             }
-            Yaml::Integer(v) => {
+            YamlOutput::Integer(v) => {
                 write!(self.writer, "{}", v)?;
                 Ok(())
             }
-            Yaml::Real(ref v) => {
+            YamlOutput::Real(ref v) => {
                 write!(self.writer, "{}", v)?;
                 Ok(())
             }
-            Yaml::Null | Yaml::BadValue => {
+            YamlOutput::Null | YamlOutput::BadValue => {
                 write!(self.writer, "~")?;
                 Ok(())
             }
@@ -235,7 +235,7 @@ impl<'a> YamlEmitter<'a> {
         }
     }
 
-    fn emit_array(&mut self, v: &[Yaml]) -> EmitResult {
+    fn emit_array(&mut self, v: &[YamlOutput]) -> EmitResult {
         if v.is_empty() {
             write!(self.writer, "[]")?;
         } else {
@@ -253,13 +253,13 @@ impl<'a> YamlEmitter<'a> {
         Ok(())
     }
 
-    fn emit_hash(&mut self, h: &Hash) -> EmitResult {
+    fn emit_hash(&mut self, h: &HashOutput) -> EmitResult {
         if h.is_empty() {
             self.writer.write_str("{}")?;
         } else {
             self.level += 1;
             for (cnt, (k, v)) in h.iter().enumerate() {
-                let complex_key = matches!(*k, Yaml::Hash(_) | Yaml::Array(_));
+                let complex_key = matches!(*k, YamlOutput::Hash(_) | YamlOutput::Array(_));
                 if cnt > 0 {
                     writeln!(self.writer)?;
                     self.write_indent()?;
@@ -286,9 +286,9 @@ impl<'a> YamlEmitter<'a> {
     /// following a ":" or "-", either after a space, or on a new line.
     /// If `inline` is true, then the preceding characters are distinct
     /// and short enough to respect the compact flag.
-    fn emit_val(&mut self, inline: bool, val: &Yaml) -> EmitResult {
+    fn emit_val(&mut self, inline: bool, val: &YamlOutput) -> EmitResult {
         match *val {
-            Yaml::Array(ref v) => {
+            YamlOutput::Array(ref v) => {
                 if (inline && self.compact) || v.is_empty() {
                     write!(self.writer, " ")?;
                 } else {
@@ -299,7 +299,7 @@ impl<'a> YamlEmitter<'a> {
                 }
                 self.emit_array(v)
             }
-            Yaml::Hash(ref h) => {
+            YamlOutput::Hash(ref h) => {
                 if (inline && self.compact) || h.is_empty() {
                     write!(self.writer, " ")?;
                 } else {
@@ -339,27 +339,32 @@ fn need_quotes(string: &str) -> bool {
 
     string.is_empty()
         || need_quotes_spaces(string)
-        || string.starts_with(|character: char| matches!(character, '&'
-            | '*' | '?' | '|' | '-' | '<' | '>' | '=' | '!' | '%' | '@'
-        ))
-        || string.contains(|character: char| matches!(character, ':'
-            | '{'
-            | '}'
-            | '['
-            | ']'
-            | ','
-            | '#'
-            | '`'
-            | '\"'
-            | '\''
-            | '\\'
-            | '\0'..='\x06'
-            | '\t'
-            | '\n'
-            | '\r'
-            | '\x0e'..='\x1a'
-            | '\x1c'..='\x1f'
-        ))
+        || string.starts_with(|character: char| {
+            matches!(
+                character,
+                '&' | '*' | '?' | '|' | '-' | '<' | '>' | '=' | '!' | '%' | '@'
+            )
+        })
+        || string.contains(|character: char| {
+            matches!(character, ':'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | ','
+                | '#'
+                | '`'
+                | '\"'
+                | '\''
+                | '\\'
+                | '\0'..='\x06'
+                | '\t'
+                | '\n'
+                | '\r'
+                | '\x0e'..='\x1a'
+                | '\x1c'..='\x1f'
+            )
+        })
         || [
             // http://yaml.org/type/bool.html
             // Note: 'y', 'Y', 'n', 'N', is not quoted deliberately, as in libyaml. PyYAML also parse
@@ -398,11 +403,11 @@ a4:
 ";
 
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
         println!("original:\n{}", s);
         println!("emitted:\n{}", writer);
@@ -412,7 +417,7 @@ a4:
         };
         let doc_new = &docs_new[0];
 
-        assert_eq!(doc, doc_new);
+        assert_eq!(&docs[0], doc_new);
     }
 
     #[test]
@@ -437,18 +442,18 @@ products:
     empty hash key
             "#;
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
         let docs_new = match YamlLoader::load_from_str(&writer) {
             Ok(y) => y,
             Err(e) => panic!("{}", e),
         };
         let doc_new = &docs_new[0];
-        assert_eq!(doc, doc_new);
+        assert_eq!(&docs[0], doc_new);
     }
 
     #[test]
@@ -488,11 +493,11 @@ y: avoid quoting here
 z: string with spaces"#;
 
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
 
         assert_eq!(s, writer, "actual:\n\n{}\n", writer);
@@ -546,11 +551,11 @@ bool0: true
 bool1: false"#;
 
         let docs = YamlLoader::load_from_str(&input).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
 
         assert_eq!(
@@ -595,12 +600,12 @@ e:
         };
 
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
             emitter.compact(compact);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
 
         assert_eq!(s, writer);
@@ -617,11 +622,11 @@ a:
       - f"#;
 
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
         println!("original:\n{}", s);
         println!("emitted:\n{}", writer);
@@ -641,11 +646,11 @@ a:
       - - e"#;
 
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
         println!("original:\n{}", s);
         println!("emitted:\n{}", writer);
@@ -663,16 +668,15 @@ a:
         e: f"#;
 
         let docs = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &docs[0];
+        let doc = docs[0].clone().into();
         let mut writer = String::new();
         {
             let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
+            emitter.dump(&doc).unwrap();
         }
         println!("original:\n{}", s);
         println!("emitted:\n{}", writer);
 
         assert_eq!(s, writer);
     }
-
 }
