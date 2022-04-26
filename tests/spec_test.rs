@@ -76,7 +76,7 @@ include!("spec_test.rs.inc");
 
 #[test]
 fn test_mapvec_legal() {
-    use yaml_rust_formatter::yaml::{ArrayInput, HashInput, YamlInput, YamlOutput};
+    use yaml_rust_formatter::yaml::{ArrayInput, HashInput, YamlInput};
     use yaml_rust_formatter::{YamlEmitter, YamlLoader};
 
     // Emitting a `map<map<seq<_>>, _>` should result in legal yaml that

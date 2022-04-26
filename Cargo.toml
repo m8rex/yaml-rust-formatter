@@ -2,15 +2,13 @@
 name = "yaml_rust_formatter"
 version = "0.5.1"
 authors = [
-    "Yuheng Chen <yuhengchen@sensetime.com>",
-    "David Aguilar <davvid@gmail.com>",
     "Jesse Hoobergs"
 ]
-# homepage = "https://davvid.github.io/yaml-rust"
+#homepage = "https://davvid.github.io/yaml-rust"
 # documentation = "https://docs.rs/yaml-rust"
 license = "MIT/Apache-2.0"
 description = "A formatter for yaml based on yaml_rust"
-#repository = "https://github.com/davvid/yaml-rust"
+repository = "https://github.com/m8rex/yaml-rust-formatter"
 readme = "README.md"
 edition = "2018"
 
