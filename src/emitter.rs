@@ -405,7 +405,7 @@ a1:
 a2: 4 # i'm comment
 a3: [1, 2, 3]
 a4:
-    - [a1, a2]
+    - [a1, a2] # i'm another comment
     - 2
 ";
 

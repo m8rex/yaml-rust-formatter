@@ -203,20 +203,41 @@ impl<T: Iterator<Item = char>> Parser<T> {
         Ok(())
     }
 
+    fn load_comments<R: MarkedEventReceiver>(
+        &mut self,
+        event: Event,
+        mark: Marker,
+        recv: &mut R,
+    ) -> Result<(Event, Marker), ScanError> {
+        let mut event = event;
+        let mut mark = mark;
+        while let Event::Comment(_) = event {
+            recv.on_event(event, mark);
+            let n = self.next()?;
+            event = n.0;
+            mark = n.1;
+        }
+        return Ok((event, mark));
+    }
+
     fn load_document<R: MarkedEventReceiver>(
         &mut self,
         first_ev: Event,
         mark: Marker,
         recv: &mut R,
     ) -> Result<(), ScanError> {
-        assert_eq!(first_ev, Event::DocumentStart);
-        recv.on_event(first_ev, mark);
+        assert!(matches!(first_ev, Event::DocumentStart | Event::Comment(_)));
+        let (ev, mark) = self.load_comments(first_ev, mark, recv)?;
+        assert_eq!(ev, Event::DocumentStart);
+        recv.on_event(ev, mark);
 
         let (ev, mark) = self.next()?;
         self.load_node(ev, mark, recv)?;
 
         // DOCUMENT-END is expected.
         let (ev, mark) = self.next()?;
+        assert!(matches!(ev, Event::DocumentEnd | Event::Comment(_)));
+        let (ev, mark) = self.load_comments(ev, mark, recv)?;
         assert_eq!(ev, Event::DocumentEnd);
         recv.on_event(ev, mark);
 
@@ -251,16 +272,29 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn load_mapping<R: MarkedEventReceiver>(&mut self, recv: &mut R) -> Result<(), ScanError> {
         let (mut key_ev, mut key_mark) = self.next()?;
+        // Comments
+        let (ev, mark) = self.load_comments(key_ev, key_mark, recv)?;
+        key_ev = ev;
+        key_mark = mark;
         while key_ev != Event::MappingEnd {
             // key
             self.load_node(key_ev, key_mark, recv)?;
 
             // value
             let (ev, mark) = self.next()?;
+
+            // Comments
+            let (ev, mark) = self.load_comments(ev, mark, recv)?;
+
             self.load_node(ev, mark, recv)?;
 
             // next event
             let (ev, mark) = self.next()?;
+            key_ev = ev;
+            key_mark = mark;
+
+            // Comments
+            let (ev, mark) = self.load_comments(key_ev, key_mark, recv)?;
             key_ev = ev;
             key_mark = mark;
         }
@@ -270,11 +304,18 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn load_sequence<R: MarkedEventReceiver>(&mut self, recv: &mut R) -> Result<(), ScanError> {
         let (mut ev, mut mark) = self.next()?;
+        // Comments
+        let (next_ev, next_mark) = self.load_comments(ev, mark, recv)?;
+        ev = next_ev;
+        mark = next_mark;
         while ev != Event::SequenceEnd {
             self.load_node(ev, mark, recv)?;
 
             // next event
             let (next_ev, next_mark) = self.next()?;
+
+            // Comments
+            let (next_ev, next_mark) = self.load_comments(next_ev, next_mark, recv)?;
             ev = next_ev;
             mark = next_mark;
         }
@@ -285,6 +326,8 @@ impl<T: Iterator<Item = char>> Parser<T> {
     fn state_machine(&mut self) -> ParseResult {
         // let next_tok = self.peek_token()?;
         // println!("cur_state {:?}, next tok: {:?}", self.state, next_tok);
+        println!("NEW EVENT: {:?}", *self.peek_token()?,);
+        println!("NEW STATE: {:?}", self.state,);
         match self.state {
             State::StreamStart => self.stream_start(),
 
@@ -348,10 +391,14 @@ impl<T: Iterator<Item = char>> Parser<T> {
             }
             Token(_, TokenType::VersionDirective(..))
             | Token(_, TokenType::TagDirective(..))
-            | Token(_, TokenType::DocumentStart)
-            | Token(_, TokenType::Comment(_)) => {
+            | Token(_, TokenType::DocumentStart) => {
                 // explicit document
                 self._explicit_document_start()
+            }
+            Token(mark, TokenType::Comment(ref c)) => {
+                let c = c.clone();
+                self.skip();
+                Ok((Event::Comment(c), mark))
             }
             Token(mark, _) if implicit => {
                 self.parser_process_directives()?;
@@ -409,7 +456,8 @@ impl<T: Iterator<Item = char>> Parser<T> {
             | Token(mark, TokenType::TagDirective(..))
             | Token(mark, TokenType::DocumentStart)
             | Token(mark, TokenType::DocumentEnd)
-            | Token(mark, TokenType::StreamEnd) => {
+            | Token(mark, TokenType::StreamEnd)
+            | Token(mark, TokenType::Comment(..)) => {
                 self.pop_state();
                 // empty scalar
                 Ok((Event::empty_scalar(), mark))
@@ -425,6 +473,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 self.skip();
                 _implicit = false;
                 mark
+            }
+            Token(mark, TokenType::Comment(ref c)) => {
+                let c = c.clone();
+                self.skip();
+                return Ok((Event::Comment(c), mark));
             }
             Token(mark, _) => mark,
         };
@@ -566,6 +619,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 self.skip();
                 Ok((Event::MappingEnd, mark))
             }
+            Token(mark, TokenType::Comment(ref c)) => {
+                let c = c.clone();
+                self.skip();
+                Ok((Event::Comment(c), mark))
+            }
             Token(mark, _) => Err(ScanError::new(
                 mark,
                 "while parsing a block mapping, did not find expected key",
@@ -590,6 +648,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
                         self.parse_node(true, true)
                     }
                 }
+            }
+            Token(mark, TokenType::Comment(ref c)) => {
+                let c = c.clone();
+                self.skip();
+                return Ok((Event::Comment(c), mark));
             }
             Token(mark, _) => {
                 self.state = State::BlockMappingKey;
@@ -768,11 +831,21 @@ impl<T: Iterator<Item = char>> Parser<T> {
                         self.state = State::BlockSequenceEntry;
                         Ok((Event::empty_scalar(), mark))
                     }
+                    Token(mark, TokenType::Comment(ref c)) => {
+                        let c = c.clone();
+                        self.skip();
+                        return Ok((Event::Comment(c), mark));
+                    }
                     _ => {
                         self.push_state(State::BlockSequenceEntry);
                         self.parse_node(true, false)
                     }
                 }
+            }
+            Token(mark, TokenType::Comment(ref c)) => {
+                let c = c.clone();
+                self.skip();
+                Ok((Event::Comment(c), mark))
             }
             Token(mark, _) => Err(ScanError::new(
                 mark,
@@ -789,6 +862,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 self.skip();
                 self.state = State::FlowSequenceEntryMappingValue;
                 Ok((Event::empty_scalar(), mark))
+            }
+            Token(mark, TokenType::Comment(ref c)) => {
+                let c = c.clone();
+                self.skip();
+                return Ok((Event::Comment(c), mark));
             }
             _ => {
                 self.push_state(State::FlowSequenceEntryMappingValue);
