@@ -676,21 +676,27 @@ impl<T: Iterator<Item = char>> Parser<T> {
         match *self.peek_token()? {
             Token(_, TokenType::Value) => {
                 self.skip();
-                match *self.peek_token()? {
-                    Token(mark, TokenType::Key)
-                    | Token(mark, TokenType::Value)
-                    | Token(mark, TokenType::BlockEnd) => {
-                        self.state = State::BlockMappingKey;
-                        // empty scalar
-                        Ok(vec![(Event::empty_scalar(), mark)])
-                    }
-                    Token(mark, TokenType::Comment(ref c)) => {
-                        let c = c.clone();
-                        Ok(vec![(Event::Comment(c), mark)])
-                    }
-                    _ => {
-                        self.push_state(State::BlockMappingKey);
-                        self.parse_node(true, true)
+                let mut events = Vec::new();
+                loop {
+                    match *self.peek_token()? {
+                        Token(mark, TokenType::Key)
+                        | Token(mark, TokenType::Value)
+                        | Token(mark, TokenType::BlockEnd) => {
+                            self.state = State::BlockMappingKey;
+                            events.push((Event::empty_scalar(), mark));
+                            // empty scalar
+                            return Ok(events);
+                        }
+                        Token(mark, TokenType::Comment(ref c)) => {
+                            let c = c.clone();
+                            events.push((Event::Comment(c), mark));
+                            self.skip();
+                        }
+                        _ => {
+                            self.push_state(State::BlockMappingKey);
+                            events.extend(self.parse_node(true, true)?.into_iter());
+                            return Ok(events);
+                        }
                     }
                 }
             }
@@ -806,6 +812,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
             Token(_, TokenType::FlowEntry) if !first => {
                 self.skip();
             }
+            Token(mark, TokenType::Comment(ref s)) => {
+                let s = s.clone();
+                self.skip();
+                return Ok(vec![(Event::Comment(s), mark)]);
+            }
             Token(mark, _) if !first => {
                 return Err(ScanError::new(
                     mark,
@@ -871,19 +882,24 @@ impl<T: Iterator<Item = char>> Parser<T> {
             }
             Token(_, TokenType::BlockEntry) => {
                 self.skip();
-                match *self.peek_token()? {
-                    Token(mark, TokenType::BlockEntry) | Token(mark, TokenType::BlockEnd) => {
-                        self.state = State::BlockSequenceEntry;
-                        Ok(vec![(Event::empty_scalar(), mark)])
-                    }
-                    Token(mark, TokenType::Comment(ref c)) => {
-                        let c = c.clone();
-                        self.skip();
-                        return Ok(vec![(Event::Comment(c), mark)]);
-                    }
-                    _ => {
-                        self.push_state(State::BlockSequenceEntry);
-                        self.parse_node(true, false)
+                let mut events = Vec::new();
+                loop {
+                    match *self.peek_token()? {
+                        Token(mark, TokenType::BlockEntry) | Token(mark, TokenType::BlockEnd) => {
+                            self.state = State::BlockSequenceEntry;
+                            events.push((Event::empty_scalar(), mark));
+                            return Ok(events);
+                        }
+                        Token(mark, TokenType::Comment(ref c)) => {
+                            let c = c.clone();
+                            self.skip();
+                            events.push((Event::Comment(c), mark));
+                        }
+                        _ => {
+                            self.push_state(State::BlockSequenceEntry);
+                            events.extend(self.parse_node(true, false)?.into_iter());
+                            return Ok(events);
+                        }
                     }
                 }
             }
