@@ -1,6 +1,6 @@
 # yaml-rust-formatter
 
-The missing YAML 1.2 formatter build on `yaml-rust`.
+The missing YAML 1.2 formatter build on `yaml-rust`. !Not yet useable!
 
 [![crates.io](https://img.shields.io/crates/v/yaml-rust-formatter.svg)](https://crates.io/crates/yaml-rust-formatter)
 [![docs.rs](https://img.shields.io/badge/api-rustdoc-blue.svg)](https://docs.rs/yaml-rust-formatter)
