@@ -225,7 +225,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
         let mut event = event;
         let mut mark = mark;
         while let Event::Comment(_) = event {
-            println!("LOADING comment {:?}", event);
+            //println!("LOADING comment {:?}", event);
             recv.on_event(event, mark);
             let n = self.next()?;
             if n.len() == 1 {
@@ -270,8 +270,8 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
         // DOCUMENT-END is expected.
         let (ev, mark) = self.handled_next(recv)?;
-        println!("LAST {:?}", ev);
-        println!("LAST ST {:?}", self.state);
+        //println!("LAST {:?}", ev);
+        //println!("LAST ST {:?}", self.state);
         assert!(matches!(ev, Event::DocumentEnd | Event::Comment(_)));
         let (ev, mark) = self.load_comments(ev, mark, recv)?;
         assert_eq!(ev, Event::DocumentEnd);
@@ -301,7 +301,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 self.load_mapping(recv)
             }
             _ => {
-                println!("UNREACHABLE EVENT: {:?}", first_ev);
+                //println!("UNREACHABLE EVENT: {:?}", first_ev);
                 unreachable!();
             }
         }
@@ -361,8 +361,8 @@ impl<T: Iterator<Item = char>> Parser<T> {
     fn state_machine(&mut self) -> ParseResult {
         // let next_tok = self.peek_token()?;
         // println!("cur_state {:?}, next tok: {:?}", self.state, next_tok);
-        println!("NEW TOKEN: {:?}", *self.peek_token()?,);
-        println!("NEW STATE: {:?}", self.state,);
+        //println!("NEW TOKEN: {:?}", *self.peek_token()?,);
+        //println!("NEW STATE: {:?}", self.state,);
         match self.state {
             State::StreamStart => self.stream_start(),
 
@@ -672,7 +672,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
     }
 
     fn block_mapping_value(&mut self) -> ParseResult {
-        println!("BMV: {:?}", self.peek_token());
+        //println!("BMV: {:?}", self.peek_token());
         match *self.peek_token()? {
             Token(_, TokenType::Value) => {
                 self.skip();

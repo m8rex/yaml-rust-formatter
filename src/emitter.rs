@@ -416,8 +416,6 @@ a4:
             let mut emitter = YamlEmitter::new(&mut writer);
             emitter.dump(&doc).unwrap();
         }
-        println!("original:\n{}", s);
-        println!("emitted:\n{}", writer);
         let docs_new = match YamlLoader::load_from_str(&writer) {
             Ok(y) => y,
             Err(e) => panic!("{}", e),
@@ -635,8 +633,6 @@ a:
             let mut emitter = YamlEmitter::new(&mut writer);
             emitter.dump(&doc).unwrap();
         }
-        println!("original:\n{}", s);
-        println!("emitted:\n{}", writer);
 
         assert_eq!(s, writer);
     }
@@ -659,8 +655,6 @@ a:
             let mut emitter = YamlEmitter::new(&mut writer);
             emitter.dump(&doc).unwrap();
         }
-        println!("original:\n{}", s);
-        println!("emitted:\n{}", writer);
 
         assert_eq!(s, writer);
     }
@@ -681,8 +675,6 @@ a:
             let mut emitter = YamlEmitter::new(&mut writer);
             emitter.dump(&doc).unwrap();
         }
-        println!("original:\n{}", s);
-        println!("emitted:\n{}", writer);
 
         assert_eq!(s, writer);
     }
