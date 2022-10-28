@@ -187,10 +187,19 @@ impl<'a> YamlEmitter<'a> {
         Ok(())
     }
 
+    fn write_comments(&mut self, cs: &Vec<String>) -> EmitResult {
+        for c in cs.iter() {
+            self.write_indent()?;
+            write!(self.writer, "# {}", c)?;
+        }
+        Ok(())
+    }
+
     fn emit_node(&mut self, node: &YamlOutput) -> EmitResult {
         match *node {
             YamlOutput::Array(ref v) => self.emit_array(v),
             YamlOutput::Hash(ref h) => self.emit_hash(h),
+            YamlOutput::Comments(ref cs) => self.write_comments(cs),
             YamlOutput::String(ref v) => {
                 if self.multiline_strings && v.contains('\n') {
                     write!(self.writer, "|")?;
@@ -242,30 +251,36 @@ impl<'a> YamlEmitter<'a> {
         }
     }
 
-    fn emit_array(&mut self, v: &[YamlOutput]) -> EmitResult {
+    fn emit_array(
+        &mut self,
+        (cs, v): &(Vec<String>, Vec<(YamlOutput, Vec<String>)>),
+    ) -> EmitResult {
+        self.write_comments(cs);
         if v.is_empty() {
             write!(self.writer, "[]")?;
         } else {
             self.level += 1;
-            for (cnt, x) in v.iter().enumerate() {
+            for (cnt, (x, cs)) in v.iter().enumerate() {
                 if cnt > 0 {
                     writeln!(self.writer)?;
                     self.write_indent()?;
                 }
                 write!(self.writer, "-")?;
                 self.emit_val(true, x)?;
+                self.write_comments(cs)?;
             }
             self.level -= 1;
         }
         Ok(())
     }
 
-    fn emit_hash(&mut self, h: &HashOutput) -> EmitResult {
+    fn emit_hash(&mut self, (cs, h): &HashOutput) -> EmitResult {
+        self.write_comments(cs);
         if h.is_empty() {
             self.writer.write_str("{}")?;
         } else {
             self.level += 1;
-            for (cnt, (k, v)) in h.iter().enumerate() {
+            for (cnt, (k, (v, cs))) in h.iter().enumerate() {
                 let complex_key = matches!(*k, YamlOutput::Hash(_) | YamlOutput::Array(_));
                 if cnt > 0 {
                     writeln!(self.writer)?;
@@ -283,6 +298,7 @@ impl<'a> YamlEmitter<'a> {
                     write!(self.writer, ":")?;
                     self.emit_val(false, v)?;
                 }
+                self.write_comments(cs)?;
             }
             self.level -= 1;
         }
@@ -296,7 +312,8 @@ impl<'a> YamlEmitter<'a> {
     fn emit_val(&mut self, inline: bool, val: &YamlOutput) -> EmitResult {
         match *val {
             YamlOutput::Array(ref v) => {
-                if (inline && self.compact) || v.is_empty() {
+                self.write_comments(&v.0)?;
+                if (inline && self.compact) || v.1.is_empty() {
                     write!(self.writer, " ")?;
                 } else {
                     writeln!(self.writer)?;
@@ -307,7 +324,8 @@ impl<'a> YamlEmitter<'a> {
                 self.emit_array(v)
             }
             YamlOutput::Hash(ref h) => {
-                if (inline && self.compact) || h.is_empty() {
+                self.write_comments(&h.0)?;
+                if (inline && self.compact) || h.1.is_empty() {
                     write!(self.writer, " ")?;
                 } else {
                     writeln!(self.writer)?;
