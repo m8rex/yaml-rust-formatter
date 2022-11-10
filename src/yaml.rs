@@ -48,14 +48,17 @@ pub enum YamlInput {
     Aliased(string::String, Option<Box<YamlInput>>),
     /// YAML null, e.g. `null` or `~`.
     Null,
+    /// Some comments
+    Comments(Vec<String>),
     /// Accessing a nonexistent node via the Index trait returns `BadValue`. This
     /// simplifies error handling in the calling code. Invalid type conversion also
     /// returns `BadValue`.
     BadValue,
 }
 
-pub type ArrayInput = Vec<YamlInput>;
-pub type HashInput = LinkedHashMap<YamlInput, YamlInput>;
+pub type ArrayInput = (Vec<String>, Vec<(YamlInput, Vec<String>)>); // (Comments before, items with comments after)
+pub type HashInputList = LinkedHashMap<YamlInput, (YamlInput, Vec<String>)>;
+pub type HashInput = (Vec<String>, HashInputList); // (comments before, items with comments after)
 
 /// A write YAML node is stored as this `YamlOutput` enumeration, which provides an easy way to
 /// write your YAML document.
@@ -89,14 +92,19 @@ pub enum YamlOutput {
     Alias(string::String),
     /// YAML null, e.g. `null` or `~`.
     Null,
+    /// A comment
+    Comments(Vec<String>),
     /// Accessing a nonexistent node via the Index trait returns `BadValue`. This
     /// simplifies error handling in the calling code. Invalid type conversion also
     /// returns `BadValue`.
     BadValue,
 }
 
-pub type ArrayOutput = Vec<YamlOutput>;
-pub type HashOutput = LinkedHashMap<YamlOutput, YamlOutput>;
+pub type ArrayOutput = (Vec<String>, Vec<(YamlOutput, Vec<String>)>); // (Comments before, items with comments after)
+pub type HashOutput = (
+    Vec<String>,
+    LinkedHashMap<YamlOutput, (YamlOutput, Vec<String>)>,
+); // (comments before, items with comments after)
 
 impl std::convert::Into<YamlOutput> for YamlInput {
     fn into(self) -> YamlOutput {
@@ -105,12 +113,18 @@ impl std::convert::Into<YamlOutput> for YamlInput {
             Self::Integer(i) => YamlOutput::Integer(i),
             Self::String(s) => YamlOutput::String(s),
             Self::Boolean(b) => YamlOutput::Boolean(b),
-            Self::Array(v) => YamlOutput::Array(v.into_iter().map(|a| a.into()).collect()),
-            Self::Hash(h) => {
-                YamlOutput::Hash(h.into_iter().map(|(k, v)| (k.into(), v.into())).collect())
+            Self::Array((cs, v)) => {
+                YamlOutput::Array((cs, v.into_iter().map(|(a, ics)| (a.into(), ics)).collect()))
             }
+            Self::Hash((cs, h)) => YamlOutput::Hash((
+                cs,
+                h.into_iter()
+                    .map(|(k, (v, ics))| (k.into(), (v.into(), ics)))
+                    .collect(),
+            )),
             Self::Anchored(s, i) => YamlOutput::Anchored(s, Box::new((*i).into())),
             Self::Aliased(s, _) => YamlOutput::Alias(s),
+            Self::Comments(c) => YamlOutput::Comments(c),
             Self::Null => YamlOutput::Null,
             Self::BadValue => YamlOutput::BadValue,
         }
@@ -153,7 +167,17 @@ impl MarkedEventReceiver for YamlLoader {
                 }
             }
             Event::SequenceStart(aid) => {
-                self.doc_stack.push((YamlInput::Array(Vec::new()), aid));
+                let comments =
+                    if let Some((YamlInput::Comments(previous), _)) = self.doc_stack.last() {
+                        previous.clone()
+                    } else {
+                        Vec::new()
+                    };
+                if !comments.is_empty() {
+                    self.doc_stack.pop();
+                }
+                self.doc_stack
+                    .push((YamlInput::Array((comments, Vec::new())), aid));
             }
             Event::SequenceEnd => {
                 let node = self.doc_stack.pop().unwrap();
@@ -167,8 +191,17 @@ impl MarkedEventReceiver for YamlLoader {
                 }
             }
             Event::MappingStart(aid) => {
+                let comments =
+                    if let Some((YamlInput::Comments(previous), _)) = self.doc_stack.last() {
+                        previous.clone()
+                    } else {
+                        Vec::new()
+                    };
+                if !comments.is_empty() {
+                    self.doc_stack.pop();
+                }
                 self.doc_stack
-                    .push((YamlInput::Hash(HashInput::new()), aid));
+                    .push((YamlInput::Hash((comments, HashInputList::new())), aid));
                 self.key_stack.push(YamlInput::BadValue);
             }
             Event::MappingEnd => {
@@ -238,6 +271,7 @@ impl MarkedEventReceiver for YamlLoader {
                 );
                 self.insert_new_node((node, None));
             }
+            Event::Comment(c) => self.insert_comment(c),
             _ => { /* ignore */ }
         }
         // println!("DOC {:?}", self.doc_stack);
@@ -255,8 +289,8 @@ impl YamlLoader {
         } else {
             let parent = self.doc_stack.last_mut().unwrap();
             match *parent {
-                (YamlInput::Array(ref mut v), _) => v.push(node.0),
-                (YamlInput::Hash(ref mut h), _) => {
+                (YamlInput::Array((_, ref mut v)), _) => v.push((node.0, Vec::new())),
+                (YamlInput::Hash((_, ref mut h)), _) => {
                     let cur_key = self.key_stack.last_mut().unwrap();
                     // current node is a key
                     if cur_key.is_badvalue() {
@@ -265,7 +299,35 @@ impl YamlLoader {
                     } else {
                         let mut newkey = YamlInput::BadValue;
                         mem::swap(&mut newkey, cur_key);
-                        h.insert(newkey, node.0);
+                        h.insert(newkey, (node.0, Vec::new()));
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    fn insert_comment(&mut self, comment: String) {
+        if self.doc_stack.is_empty() {
+            self.doc_stack
+                .push((YamlInput::Comments(vec![comment]), None));
+        } else {
+            let parent = self.doc_stack.last_mut().unwrap();
+            match *parent {
+                (YamlInput::Comments(ref mut v), _) => v.push(comment),
+                (YamlInput::Array((ref mut bv, ref mut v)), _) => {
+                    if let Some((k, v)) = v.last_mut() {
+                        v.push(comment)
+                    } else {
+                        bv.push(comment)
+                    }
+                }
+                (YamlInput::Hash((ref mut bv, ref mut v)), _) => {
+                    let len = v.len();
+                    if let Some((_, (k, v))) = v.iter_mut().skip(len - 1).next() {
+                        v.push(comment)
+                    } else {
+                        bv.push(comment)
                     }
                 }
                 _ => unreachable!(),
@@ -405,7 +467,7 @@ impl<'a> Index<&'a str> for YamlInput {
     fn index(&self, idx: &'a str) -> &Self {
         let key = Self::String(idx.to_owned());
         match self.as_hash() {
-            Some(h) => h.get(&key).unwrap_or(&BAD_VALUE),
+            Some((_, h)) => h.get(&key).map(|(v, _)| v).unwrap_or(&BAD_VALUE),
             None => &BAD_VALUE,
         }
     }
@@ -415,11 +477,11 @@ impl Index<usize> for YamlInput {
     type Output = Self;
 
     fn index(&self, idx: usize) -> &Self {
-        if let Some(v) = self.as_vec() {
-            v.get(idx).unwrap_or(&BAD_VALUE)
-        } else if let Some(v) = self.as_hash() {
+        if let Some((_, v)) = self.as_vec() {
+            v.get(idx).map(|(e, _)| e).unwrap_or(&BAD_VALUE)
+        } else if let Some((_, v)) = self.as_hash() {
             let key = Self::Integer(idx as i64);
-            v.get(&key).unwrap_or(&BAD_VALUE)
+            v.get(&key).map(|(v, _)| v).unwrap_or(&BAD_VALUE)
         } else {
             &BAD_VALUE
         }
@@ -427,24 +489,28 @@ impl Index<usize> for YamlInput {
 }
 
 impl IntoIterator for YamlInput {
-    type Item = Self;
+    type Item = (Self, Vec<String>);
     type IntoIter = YamlInputIter;
 
     fn into_iter(self) -> Self::IntoIter {
         YamlInputIter {
-            yaml: self.into_vec().unwrap_or_else(Vec::new).into_iter(),
+            yaml: self
+                .into_vec()
+                .map(|a| a.1)
+                .unwrap_or_else(Vec::new)
+                .into_iter(),
         }
     }
 }
 
 pub struct YamlInputIter {
-    yaml: vec::IntoIter<YamlInput>,
+    yaml: vec::IntoIter<(YamlInput, Vec<String>)>,
 }
 
 impl Iterator for YamlInputIter {
-    type Item = YamlInput;
+    type Item = (YamlInput, Vec<String>);
 
-    fn next(&mut self) -> Option<YamlInput> {
+    fn next(&mut self) -> Option<(YamlInput, Vec<String>)> {
         self.yaml.next()
     }
 }
@@ -704,7 +770,7 @@ c: ~
 ";
         let out = YamlLoader::load_from_str(&s).unwrap();
         let first = out.into_iter().next().unwrap();
-        let mut iter = first.into_hash().unwrap().into_iter();
+        let mut iter = first.into_hash().unwrap().map(|a| a.0).into_iter();
         assert_eq!(
             Some((YamlInput::String("b".to_owned()), YamlInput::Null)),
             iter.next()
@@ -807,7 +873,7 @@ subcommands3:
         let out = YamlLoader::load_from_str(&s).unwrap();
         let doc = &out.into_iter().next().unwrap();
 
-        println!("{:#?}", doc);
+        //println!("{:#?}", doc);
         assert_eq!(doc["subcommands"][0]["server"], YamlInput::Null);
         assert!(doc["subcommands2"][0]["server"].as_hash().is_some());
         assert!(doc["subcommands3"][0]["server"].as_hash().is_some());
